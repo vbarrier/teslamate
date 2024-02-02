@@ -526,6 +526,14 @@ defmodule TeslaMate.Vehicles.Vehicle do
     {:keep_state, %Data{data | stream_pid: pid}}
   end
 
+  def handle_event(:info, {:stream, msg}, _state, data)
+      when msg in [:vehicle_offline] do
+    Logger.info("Stream reports vehicle as offline … ", car_id: data.car.id)
+
+    {:next_state, :start, data,
+     [broadcast_fetch(false), {:next_event, :internal, {:update, {:offline, data.last_response}}}]}
+  end
+
   def handle_event(:info, {:stream, stream_data}, _state, data) do
     Logger.info("Received stream data: #{inspect(stream_data)}", car_id: data.car.id)
     :keep_state_and_data
@@ -1354,6 +1362,12 @@ defmodule TeslaMate.Vehicles.Vehicle do
         {:keep_state, %Data{data | last_used: DateTime.utc_now()},
          [broadcast_summary(), schedule_fetch(30 * i, data)]}
 
+      {:error, :dogmode} ->
+        if suspend?, do: Logger.warning("Dog Mode is enabled ...", car_id: car.id)
+
+        {:keep_state, %Data{data | last_used: DateTime.utc_now()},
+         [broadcast_summary(), schedule_fetch(30 * i, data)]}
+
       {:error, :user_present} ->
         if suspend?, do: Logger.warning("User present ...", car_id: car.id)
 
@@ -1412,6 +1426,9 @@ defmodule TeslaMate.Vehicles.Vehicle do
 
       {%Vehicle{climate_state: %Climate{is_preconditioning: true}}, _} ->
         {:error, :preconditioning}
+
+      {%Vehicle{climate_state: %Climate{climate_keeper_mode: "dog"}}, _} ->
+        {:error, :dogmode}
 
       {%Vehicle{vehicle_state: %VehicleState{sentry_mode: true}}, _} ->
         {:error, :sentry_mode}
